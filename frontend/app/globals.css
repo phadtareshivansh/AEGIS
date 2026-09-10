@@ -1,19 +1,47 @@
 @import "tailwindcss";
 
-:root {
-  --background: #000000;
-  --foreground: #ffffff;
+@theme {
+  --color-background: #0a0a0a;
+  --color-foreground: #f5f5f0;
+  --color-muted: #8a8a85;
+  --color-accent: #e8542a;
+  --color-accent-dim: #e8542a26;
+  --color-panel: #111110;
+
+  --font-sans: var(--font-inter);
+  --font-display: var(--font-inter);
+  --font-mono: var(--font-jbmono);
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+::selection {
+  background: var(--color-accent);
+  color: var(--color-background);
+}
+
+html {
+  scroll-behavior: smooth;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* slim scrollbar for the live command feed — mono aesthetic */
+.feed-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.feed-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.feed-scroll::-webkit-scrollbar-thumb {
+  background: rgb(255 255 255 / 0.12);
+  border-radius: 9999px;
+}
+.feed-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgb(255 255 255 / 0.22);
 }

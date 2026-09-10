@@ -1,0 +1,17 @@
+{
+  "ambulances": {"total": 5, "location": "central_depot"},
+  "water_tankers": {"total": 10, "location": "central_depot"},
+  "shelters": [
+    {"id": "shelter_1", "name": "Riverside Hall", "capacity": 7000, "serves_zones": ["rv-01", "rv-02"]},
+    {"id": "shelter_2", "name": "Central Gym", "capacity": 7500, "serves_zones": ["rv-03", "rv-04"]},
+    {"id": "shelter_3", "name": "Station Arena", "capacity": 6000, "serves_zones": ["rv-05", "rv-06", "rv-07"]},
+    {"id": "shelter_4", "name": "Mill District Warehouse", "capacity": 9000, "serves_zones": ["rv-04", "rv-08", "rv-09", "rv-18"]},
+    {"id": "shelter_5", "name": "Northgate School", "capacity": 8000, "serves_zones": ["rv-02", "rv-07", "rv-10", "rv-11"]}
+  ],
+  "evacuation_routes": [
+    {"id": "east_bridge", "connects_zones": ["rv-03", "rv-01"], "also_required_for": "supply_delivery", "supply_delivery_to_zone": "rv-02"},
+    {"id": "west_highway", "connects_zones": ["rv-02", "rv-04"]},
+    {"id": "north_road", "connects_zones": ["rv-05", "rv-06", "rv-07"]},
+    {"id": "south_ring", "connects_zones": ["rv-08", "rv-09", "rv-10"], "also_required_for": "supply_delivery", "supply_delivery_to_zone": "rv-18"}
+  ]
+}
