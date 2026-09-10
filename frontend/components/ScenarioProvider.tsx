@@ -10,7 +10,11 @@ import {
 } from "react";
 import type { ReactNode } from "react";
 
-const BACKEND = "http://localhost:8000";
+const API_BASE = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000").replace(
+  /\/+$/,
+  "",
+);
+const WS_BASE = API_BASE.replace(/^http/, "ws");
 const PRESET = {
   rainfall_mm_24h: 250,
   river_level_m: 6.5,
@@ -155,7 +159,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     setBriefing(null);
 
     try {
-      const res = await fetch(`${BACKEND}/run-scenario`, {
+      const res = await fetch(`${API_BASE}/run-scenario`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ scenario_id: id, raw_data: PRESET }),
@@ -175,7 +179,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const ws = new WebSocket(`ws://localhost:8000/ws/feed/${id}`);
+    const ws = new WebSocket(`${WS_BASE}/ws/feed/${id}`);
     wsRef.current = ws;
     ws.onopen = () => setConnection("live");
     ws.onmessage = (evt) => {
