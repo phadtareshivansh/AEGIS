@@ -26,7 +26,10 @@ async def main():
         else:
             for update in chunk.values():
                 for k, v in update.items():
-                    setattr(state, k, v)
+                    if k == "events":
+                        state.events = list(state.events) + v
+                    else:
+                        setattr(state, k, v)
 
     print("========== FINAL BRIEFING ==========")
     print(json.dumps(state.briefing, indent=2))

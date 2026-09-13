@@ -37,6 +37,10 @@ export type Briefing = {
   recommended_actions: string[];
 };
 
+export type SimulationVisual =
+  | { source: "image"; imageUrl: string; model?: string }
+  | { source: "svg"; svg: string };
+
 export type DebateEntry = {
   kind: "debate";
   conflictId: string;
@@ -61,6 +65,7 @@ type ScenarioContextValue = {
   entries: Entry[];
   scenarioId: string | null;
   briefing: Briefing | null;
+  simulation: SimulationVisual | null;
   runScenario: () => Promise<void>;
   resetScenario: () => void;
 };
@@ -129,6 +134,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   const [entries, setEntries] = useState<Entry[]>([]);
   const [scenarioId, setScenarioId] = useState<string | null>(null);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
+  const [simulation, setSimulation] = useState<SimulationVisual | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const resourcesRef = useRef<Record<string, string>>({});
@@ -143,6 +149,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     setConnection("idle");
     setEntries([]);
     setBriefing(null);
+    setSimulation(null);
     setScenarioId(null);
   }, []);
 
@@ -157,6 +164,7 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     setConnection("connecting");
     setEntries([]);
     setBriefing(null);
+    setSimulation(null);
 
     try {
       const res = await fetch(`${API_BASE}/run-scenario`, {
@@ -206,6 +214,17 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
             if (cid && resource && !resourcesRef.current[cid]) {
               resourcesRef.current[cid] = resource;
             }
+          } else if (event.agent === "simulation" && event.data) {
+            const data = event.data as Record<string, unknown>;
+            if (typeof data.image_url === "string") {
+              setSimulation({
+                source: "image",
+                imageUrl: data.image_url,
+                model: typeof data.model === "string" ? data.model : undefined,
+              });
+            } else if (typeof data.svg === "string") {
+              setSimulation({ source: "svg", svg: data.svg });
+            }
           }
           setEntries((prev) => [...prev, { kind: "line", event }]);
         }
@@ -230,10 +249,11 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
       entries,
       scenarioId,
       briefing,
+      simulation,
       runScenario,
       resetScenario,
     }),
-    [phase, connection, entries, scenarioId, briefing, runScenario, resetScenario],
+    [phase, connection, entries, scenarioId, briefing, simulation, runScenario, resetScenario],
   );
 
   return <ScenarioContext.Provider value={value}>{children}</ScenarioContext.Provider>;

@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import { useScenario } from "./ScenarioProvider";
 import type { DebateEntry, Entry, ScenarioEvent } from "./ScenarioProvider";
+import SimulationPanel from "./SimulationPanel";
 
 const EASE = [0.22, 1, 0.36, 1] as const;
 
@@ -272,18 +273,25 @@ export default function CommandCenter() {
             </div>
           ) : null}
 
-          <div ref={feedRef} onScroll={onFeedScroll} className="feed-scroll max-h-[560px] overflow-y-auto px-6 py-6 font-mono text-[13px] leading-relaxed">
-            {entries.length === 0 ? (
-              <p className="text-muted">
-                {running || connection === "connecting"
-                  ? "connecting to live feed…"
-                  : "Run a scenario to begin the live feed."}
-              </p>
-            ) : (
-              entries.map((entry, i) => (
-                <FeedItem key={entry.kind === "debate" ? `${entry.conflictId}` : `l-${i}`} entry={entry} />
-              ))
-            )}
+          <div className="grid gap-4 p-0 lg:grid-cols-[1fr,400px]">
+            <div
+              ref={feedRef}
+              onScroll={onFeedScroll}
+              className="feed-scroll max-h-[560px] overflow-y-auto border-t border-white/10 px-6 py-6 font-mono text-[13px] leading-relaxed lg:border-t-0"
+            >
+              {entries.length === 0 ? (
+                <p className="text-muted">
+                  {running || connection === "connecting"
+                    ? "connecting to live feed…"
+                    : "Run a scenario to begin the live feed."}
+                </p>
+              ) : (
+                entries.map((entry, i) => (
+                  <FeedItem key={entry.kind === "debate" ? `${entry.conflictId}` : `l-${i}`} entry={entry} />
+                ))
+              )}
+            </div>
+            <SimulationPanel />
           </div>
         </motion.div>
       </div>

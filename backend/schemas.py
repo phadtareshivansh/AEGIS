@@ -1,4 +1,5 @@
-from typing import Literal
+import operator
+from typing import Annotated, Literal
 
 from pydantic import BaseModel
 
@@ -33,5 +34,6 @@ class ScenarioState(BaseModel):
     negotiation_log: list[dict] = []
     resolution: dict | None = None
     briefing: dict | None = None
-    events: list[dict] = []
+    simulation: dict | None = None
+    events: Annotated[list[dict], operator.add] = []
     status: ScenarioStatus = "running"

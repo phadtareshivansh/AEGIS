@@ -7,21 +7,26 @@ from agents.briefing import generate_briefing
 from agents.logistics import build_logistics_plan
 from agents.negotiator import run_debate
 from agents.prediction import build_prediction
+from agents.simulation import render_simulation
 from schemas import ScenarioState
+
+
+def _event(type_: str, agent: str, message: str, data: dict | None = None) -> dict:
+    return {
+        "type": type_,
+        "agent": agent,
+        "message": message,
+        "data": data,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
 
 
 async def prediction_node(state: ScenarioState) -> dict:
     prediction = build_prediction(state.raw_data)
-    event = {
-        "type": "agent_result",
-        "agent": "prediction",
-        "message": prediction["summary"],
-        "data": prediction,
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-    }
+    event = _event("agent_result", "prediction", prediction["summary"], prediction)
     return {
         "prediction": prediction,
-        "events": state.events + [event],
+        "events": [event],
     }
 
 
@@ -42,44 +47,56 @@ async def logistics_node(state: ScenarioState) -> dict:
         )
     message = "; ".join(lines)
     timestamp = datetime.now(timezone.utc).isoformat()
-    event = {
-        "type": "agent_result",
-        "agent": "logistics",
-        "message": message,
-        "data": plan,
-        "timestamp": timestamp,
-    }
+    event = _event("agent_result", "logistics", message, plan)
     flagged = [
-        {
-            "type": "conflict_flagged",
-            "agent": "logistics",
-            "message": line,
-            "data": conflict,
-            "timestamp": timestamp,
-        }
+        _event("conflict_flagged", "logistics", line, conflict)
         for conflict, line in zip(conflicts, lines[1:])
     ]
     return {
         "logistics_plan": plan,
         "conflicts": state.conflicts + conflicts,
-        "events": state.events + [event] + flagged,
+        "events": [event] + flagged,
     }
+
+
+async def simulation_node(state: ScenarioState) -> dict:
+    payload, source, error = await render_simulation(
+        state.raw_data, state.prediction
+    )
+    events = []
+    if error:
+        events.append(
+            _event(
+                "error",
+                "simulation",
+                f"Image generation failed ({error}) — used animated SVG overlay.",
+            )
+        )
+    at_risk = len(state.prediction.get("at_risk_zones", [])) if state.prediction else 0
+    events.append(
+        _event(
+            "agent_result",
+            "simulation",
+            f"Simulation rendered for {at_risk} at-risk zones — {source}.",
+            payload,
+        )
+    )
+    return {"simulation": payload, "events": events}
 
 
 async def negotiator_node(state: ScenarioState) -> dict:
     if not state.conflicts:
-        event = {
-            "type": "agent_result",
-            "agent": "negotiator",
-            "message": "No conflicts detected — no negotiation was needed.",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        return {"events": state.events + [event]}
+        event = _event(
+            "agent_result",
+            "negotiator",
+            "No conflicts detected — no negotiation was needed.",
+        )
+        return {"events": [event]}
 
     writer = get_stream_writer()
     negotiation_log = list(state.negotiation_log)
     resolutions = dict(state.resolution or {})
-    events = list(state.events)
+    events: list[dict] = []
 
     for conflict in state.conflicts:
         turns, resolution, error = await run_debate(
@@ -96,21 +113,19 @@ async def negotiator_node(state: ScenarioState) -> dict:
 
         if error:
             events.append(
-                {
-                    "type": "error",
-                    "agent": "negotiator",
-                    "message": f"Negotiation could not complete — {error}",
-                    "timestamp": datetime.now(timezone.utc).isoformat(),
-                }
+                _event(
+                    "error",
+                    "negotiator",
+                    f"Negotiation could not complete — {error}",
+                )
             )
         events.append(
-            {
-                "type": "resolution",
-                "agent": "arbiter",
-                "message": resolution["decision"],
-                "data": {**resolution, "conflict_id": conflict["id"]},
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
+            _event(
+                "resolution",
+                "arbiter",
+                resolution["decision"],
+                {**resolution, "conflict_id": conflict["id"]},
+            )
         )
 
     return {
@@ -124,32 +139,19 @@ async def briefing_node(state: ScenarioState) -> dict:
     briefing, error = await generate_briefing(
         state.prediction, state.logistics_plan, state.resolution
     )
-    events = list(state.events)
-    events.append(
-        {
-            "type": "briefing_ready",
-            "agent": "briefing",
-            "message": briefing["headline"],
-            "data": briefing,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-    )
+    events: list[dict] = [
+        _event("briefing_ready", "briefing", briefing["headline"], briefing)
+    ]
     if error:
         events.append(
-            {
-                "type": "error",
-                "agent": "briefing",
-                "message": f"Briefing fell back to deterministic content — {error}",
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-            }
+            _event(
+                "error",
+                "briefing",
+                f"Briefing fell back to deterministic content — {error}",
+            )
         )
     events.append(
-        {
-            "type": "scenario_complete",
-            "agent": "briefing",
-            "message": briefing["headline"],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        _event("scenario_complete", "briefing", briefing["headline"])
     )
     return {"briefing": briefing, "events": events, "status": "complete"}
 
@@ -158,12 +160,15 @@ def build_graph():
     graph = StateGraph(ScenarioState)
     graph.add_node("prediction", prediction_node)
     graph.add_node("logistics", logistics_node)
+    graph.add_node("simulation", simulation_node)
     graph.add_node("negotiator", negotiator_node)
     graph.add_node("briefing", briefing_node)
 
     graph.add_edge(START, "prediction")
     graph.add_edge("prediction", "logistics")
+    graph.add_edge("prediction", "simulation")
     graph.add_edge("logistics", "negotiator")
+    graph.add_edge("simulation", "negotiator")
     graph.add_edge("negotiator", "briefing")
     graph.add_edge("briefing", END)
     return graph.compile()
