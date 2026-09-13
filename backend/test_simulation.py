@@ -160,12 +160,13 @@ async def test_hf_route_returns_data_uri():
         "YPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
     )
 
-    original_token, original_model = sim.HF_TOKEN, sim.HF_MODEL
+    original = (sim.HF_TOKEN, sim.HF_MODEL, sim.HF_MODE)
     sim.HF_TOKEN = "hf_test"
     sim.HF_MODEL = "stabilityai/sd-turbo"
+    sim.HF_MODE = "image"
 
     async def fake_post(self, url, **kwargs):
-        assert url.endswith("/models/stabilityai/sd-turbo")
+        assert url.endswith("/hf-inference/stabilityai/sd-turbo"), url
         assert kwargs["headers"]["x-wait-for-model"] == "true"
         class FakeResponse:
             status_code = 200
@@ -179,7 +180,7 @@ async def test_hf_route_returns_data_uri():
     try:
         payload, source, error = await sim.render_simulation(FLOOD, build_prediction(FLOOD))
     finally:
-        sim.HF_TOKEN, sim.HF_MODEL = original_token, original_model
+        sim.HF_TOKEN, sim.HF_MODEL, sim.HF_MODE = original
         import httpx as real_httpx
         sim.httpx.AsyncClient.post = real_httpx.AsyncClient.post
 

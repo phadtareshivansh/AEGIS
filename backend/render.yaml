@@ -16,6 +16,8 @@ services:
         value: qwen/qwen3.8-27b
       - key: HF_SIM_MODEL
         value: stabilityai/sd-turbo
+      - key: HF_SIM_MODE
+        value: svg
       - key: FRONTEND_ORIGINS
         value: http://localhost:3000
       - key: GROQ_API_KEY

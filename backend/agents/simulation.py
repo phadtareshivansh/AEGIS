@@ -18,9 +18,11 @@ import httpx
 
 from agents.prediction import load_zones, rank_zones
 
-HF_API_BASE = "https://api-inference.huggingface.co/models"
+HF_API_BASE = "https://router.huggingface.co/hf-inference"
 HF_MODEL = os.getenv("HF_SIM_MODEL", "stabilityai/sd-turbo").strip()
 HF_TOKEN = os.getenv("HF_API_TOKEN", "").strip()
+# "image" = attempt the (paid/gated) HF route; anything else = animated SVG overlay.
+HF_MODE = os.getenv("HF_SIM_MODE", "svg").strip().lower()
 HF_TIMEOUT_SECONDS = 40.0
 
 GREEN = (34, 197, 94)
@@ -201,7 +203,8 @@ async def render_simulation(
     )
     at_risk_ids = {z["zone_id"] for z in prediction.get("at_risk_zones", [])}
 
-    if HF_TOKEN:
+    error: str | None = None
+    if HF_MODE == "image" and HF_TOKEN:
         model = HF_MODEL
         try:
             image = await asyncio.wait_for(
@@ -220,4 +223,4 @@ async def render_simulation(
 
     svg = build_svg_overlay(ranked, at_risk_ids, raw_data)
     payload = {"svg": svg, "source": "svg-fallback"}
-    return payload, "animated svg overlay", error if HF_TOKEN else None
+    return payload, "animated svg overlay", error
