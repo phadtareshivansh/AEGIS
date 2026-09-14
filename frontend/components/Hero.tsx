@@ -6,7 +6,7 @@ import { useScenario } from "./ScenarioProvider";
 const EASE = [0.22, 1, 0.36, 1] as const;
 
 export default function Hero() {
-  const { phase, runScenario } = useScenario();
+  const { phase, runScenario, dataMode, setDataMode, locationKey, setLocationKey, liveLocations, liveLocationNames } = useScenario();
   const busy = phase === "running";
 
   async function handleRun() {
@@ -62,6 +62,32 @@ export default function Hero() {
           transition={{ duration: 0.6, delay: 0.4, ease: EASE }}
           className="mt-14"
         >
+      <motion.div
+        className="mt-8 flex flex-wrap items-center gap-4"
+      >
+        <button
+          type="button"
+          onClick={() => setDataMode(dataMode === "live" ? "demo" : "live")}
+          className={`font-mono text-[11px] tracking-[0.25em] ${
+            dataMode === "live" ? "text-accent" : "text-muted"
+          }`}
+        >
+          {dataMode === "live" ? "● LIVE DATA" : "○ DEMO DATA"}
+        </button>
+        {dataMode === "live" ? (
+          <select
+            value={locationKey}
+            onChange={(e) => setLocationKey(e.target.value)}
+            className="font-mono text-[11px] tracking-[0.15em] text-foreground outline-none"
+          >
+            {liveLocations.map((loc) => (
+              <option key={loc} value={loc}>
+                {liveLocationNames[loc]}
+              </option>
+            ))}
+          </select>
+        ) : null}
+      </motion.div>
           <button
             onClick={handleRun}
             disabled={busy}

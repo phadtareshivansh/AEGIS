@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 from typing import AsyncGenerator
 
@@ -13,9 +14,57 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "qwen/qwen3.8-27b")
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434").rstrip("/")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:8b")
 
+AEGIS_LLM_STUB = os.getenv("AEGIS_LLM_STUB", "0") == "1"
+
 DEFAULT_MAX_TOKENS = 512
 DEFAULT_TEMPERATURE = 0.7
 RETRY_DELAY_SECONDS = 1.0
+
+
+def _stub_content(system_prompt: str, full_messages: list[dict]) -> str:
+    """Deterministic canned output for the AEGIS_LLM_STUB test seam.
+
+    Keyed off the system prompt so the same stub correctly feeds the arbiter
+    (JSON resolution), the briefing agent (JSON briefing), and advocate turns
+    (plain streaming text). Never reached unless AEGIS_LLM_STUB=1.
+    """
+    sp = system_prompt.lower()
+    if "neutral arbiter" in sp or "winning_side" in sp:
+        return json.dumps(
+            {
+                "decision": "Time-share the route: evening evacuation window 18:00-20:00, "
+                "then logistics convoys overnight.",
+                "justification": "Banking on the 12h window, both advocates have merit; "
+                "the time-split meets both.",
+                "winning_side": "evacuation",
+            }
+        )
+    if "briefing" in sp and "headline" in sp:
+        return json.dumps(
+            {
+                "headline": "tutta tutti tutti STUB — flood response underway",
+                "risk_summary": "stub: 3 zones at elevated flood risk (SVG simulation)",
+                "resource_plan": "stub: allocation matching logistics plan",
+                "conflict_resolution": "stub: resource conflict resolved by time-share",
+                "recommended_actions": [
+                    "Begin evacuations from highest-risk zones",
+                    "Hold logistics convoys for evening window",
+                ],
+            }
+        )
+    last_user = next(
+        (m.get("content", "") for m in reversed(full_messages) if m.get("role") == "user"), ""
+    )
+    return f"STUB ADVOCATE TURN: this flood is urgent; allocate capacity to the exposed zone. ({last_user[:80]})"
+
+
+def _stub_tuple(
+    system_prompt: str, full_messages: list[dict]
+) -> tuple[list[str], str]:
+    """Return (chunks, full_text) deterministically derived from the request."""
+    text = _stub_content(system_prompt, full_messages)
+    mid = max(1, len(text) // 2)
+    return [text[:mid], text[mid:]], text
 
 
 class LLMUnavailableError(Exception):
@@ -133,6 +182,10 @@ async def generate(
 ) -> str:
     """Generate a full text completion. Provider-agnostic."""
     full_messages = _build_messages(system_prompt, messages)
+    if AEGIS_LLM_STUB:
+        return _stub_content(system_prompt, full_messages)
+    if AEGIS_LLM_STUB:
+        return _stub_content(system_prompt, full_messages)
 
     for attempt in range(1, 3):
         try:

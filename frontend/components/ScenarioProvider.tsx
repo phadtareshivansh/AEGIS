@@ -15,6 +15,29 @@ const API_BASE = (process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:8000"
   "",
 );
 const WS_BASE = API_BASE.replace(/^http/, "ws");
+
+/** Locations the live sensing agent can resolve (key -> display name). */
+const LIVE_LOCATIONS: Record<string, { key: string; name: string; lat: number; lon: number }> = {
+  pune: { key: "pune", name: "Pune", lat: 18.5204, lon: 73.8567 },
+  kolhapur: { key: "kolhapur", name: "Kolhapur", lat: 16.6913, lon: 74.2447 },
+  surat: { key: "surat", name: "Surat", lat: 21.1702, lon: 72.8311 },
+  kolkata: { key: "kolkata", name: "Kolkata", lat: 22.5726, lon: 88.3639 },
+  guwahati: { key: "guwahati", name: "Guwahati", lat: 26.1445, lon: 91.7362 },
+};
+
+
+async function fetchRunScenario(payload: {
+  scenario_id: string;
+  raw_data: Record<string, unknown>;
+}): Promise<void> {
+  const res = await fetch(`${API_BASE}/run-scenario`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`run-scenario HTTP ${res.status}`);
+}
+
 const PRESET = {
   rainfall_mm_24h: 250,
   river_level_m: 6.5,
@@ -58,14 +81,21 @@ export type Entry = LineEntry | DebateEntry;
 
 type Phase = "idle" | "running" | "briefing";
 type Connection = "idle" | "connecting" | "live" | "lost";
+type DataMode = "demo" | "live";
 
-type ScenarioContextValue = {
+export type ScenarioContextValue = {
   phase: Phase;
   connection: Connection;
   entries: Entry[];
   scenarioId: string | null;
   briefing: Briefing | null;
   simulation: SimulationVisual | null;
+  dataMode: DataMode;
+  setDataMode: (mode: DataMode) => void;
+  locationKey: string;
+  setLocationKey: (key: string) => void;
+  liveLocations: string[];
+  liveLocationNames: Record<string, string>;
   runScenario: () => Promise<void>;
   resetScenario: () => void;
 };
@@ -90,13 +120,16 @@ function upsertTurn(
   );
   const conflictIdKey = conflictId;
   if (idx === -1) {
-    return [...entries, {
-      kind: "debate",
-      conflictId: conflictIdKey,
-      resource,
-      turns: { [turn]: message },
-      resolution: null,
-    }];
+    return [
+      ...entries,
+      {
+        kind: "debate",
+        conflictId: conflictIdKey,
+        resource,
+        turns: { [turn]: message },
+        resolution: null,
+      },
+    ];
   }
   const existing = entries[idx];
   if (existing.kind !== "debate") return entries;
@@ -128,6 +161,15 @@ function attachResolution(
   return copy;
 }
 
+function buildRawData(dataMode: DataMode, locationKey: string) {
+  if (dataMode !== "live") return PRESET;
+  return {
+    ...PRESET,
+    data_mode: "live",
+    location_key: locationKey,
+  };
+}
+
 export function ScenarioProvider({ children }: { children: ReactNode }) {
   const [phase, setPhase] = useState<Phase>("idle");
   const [connection, setConnection] = useState<Connection>("idle");
@@ -135,7 +177,8 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
   const [scenarioId, setScenarioId] = useState<string | null>(null);
   const [briefing, setBriefing] = useState<Briefing | null>(null);
   const [simulation, setSimulation] = useState<SimulationVisual | null>(null);
-
+  const [dataMode, setDataMode] = useState<DataMode>("demo");
+  const [locationKey, setLocationKey] = useState("pune");
   const wsRef = useRef<WebSocket | null>(null);
   const resourcesRef = useRef<Record<string, string>>({});
   const completedRef = useRef(false);
@@ -151,6 +194,8 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     setBriefing(null);
     setSimulation(null);
     setScenarioId(null);
+    setDataMode("demo");
+    setLocationKey("pune");
   }, []);
 
   const runScenario = useCallback(async () => {
@@ -167,12 +212,10 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
     setSimulation(null);
 
     try {
-      const res = await fetch(`${API_BASE}/run-scenario`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenario_id: id, raw_data: PRESET }),
+      await fetchRunScenario({
+        scenario_id: id,
+        raw_data: buildRawData(dataMode, locationKey),
       });
-      if (!res.ok) throw new Error(`POST /run-scenario -> ${res.status}`);
     } catch (err) {
       const event: ScenarioEvent = {
         type: "error",
@@ -240,8 +283,9 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
         );
       }
     };
-  }, [phase]);
+  }, [phase, dataMode, locationKey]);
 
+  const resetScenarioStable = resetScenario;
   const value = useMemo<ScenarioContextValue>(
     () => ({
       phase,
@@ -250,11 +294,22 @@ export function ScenarioProvider({ children }: { children: ReactNode }) {
       scenarioId,
       briefing,
       simulation,
+      dataMode,
+      setDataMode,
+      locationKey,
+      setLocationKey,
+      liveLocations: Object.keys(LIVE_LOCATIONS),
+      liveLocationNames: Object.fromEntries(
+        Object.entries(LIVE_LOCATIONS).map(([key, loc]) => [key, loc.name]),
+      ),
       runScenario,
-      resetScenario,
+      resetScenario: resetScenarioStable,
     }),
-    [phase, connection, entries, scenarioId, briefing, simulation, runScenario, resetScenario],
+    [phase, connection, entries, scenarioId, briefing, simulation, dataMode, locationKey,
+     runScenario, resetScenarioStable],
   );
 
-  return <ScenarioContext.Provider value={value}>{children}</ScenarioContext.Provider>;
+  return (
+    <ScenarioContext.Provider value={value}>{children}</ScenarioContext.Provider>
+  );
 }

@@ -50,6 +50,7 @@ async def _run_pipeline(scenario_id: str, queue: asyncio.Queue) -> None:
                 await queue.put(chunk["event"])
             elif mode == "updates":
                 for update in chunk.values():
+                    update = update or {}
                     for event in update.get("events", []):
                         key = json.dumps(event, sort_keys=True)
                         if key in seen:
