@@ -16,3 +16,6 @@ npm-debug.log*
 
 # Misc
 *.log
+
+# Validation datasets (raw third-party CSVs + generated per-run results)
+backend/validation/data/
