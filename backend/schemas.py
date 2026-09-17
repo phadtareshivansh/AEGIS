@@ -9,12 +9,17 @@ EventType = Literal[
     "negotiation_turn",
     "conflict_flagged",
     "resolution",
+    "policy_disagreement",
+    "approval_needed",
+    "approval_timeout",
+    "resolution_approved",
+    "resolution_overridden",
     "briefing_ready",
     "scenario_complete",
     "error",
 ]
 
-ScenarioStatus = Literal["running", "complete", "error"]
+ScenarioStatus = Literal["running", "awaiting_approval", "complete", "error"]
 
 
 class Event(BaseModel):

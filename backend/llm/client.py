@@ -18,7 +18,7 @@ AEGIS_LLM_STUB = os.getenv("AEGIS_LLM_STUB", "0") == "1"
 
 DEFAULT_MAX_TOKENS = 512
 DEFAULT_TEMPERATURE = 0.7
-RETRY_DELAY_SECONDS = 1.0
+RETRY_DELAY_SECONDS = float(os.getenv("AEGIS_LLM_RETRY_DELAY", "1.0"))
 
 
 def _stub_content(system_prompt: str, full_messages: list[dict]) -> str:
@@ -30,22 +30,28 @@ def _stub_content(system_prompt: str, full_messages: list[dict]) -> str:
     """
     sp = system_prompt.lower()
     if "neutral arbiter" in sp or "winning_side" in sp:
+        side = os.getenv("AEGIS_LLM_STUB_ARBITER_SIDE", "").strip().lower() or "evacuation"
         return json.dumps(
             {
                 "decision": "Time-share the route: evening evacuation window 18:00-20:00, "
                 "then logistics convoys overnight.",
                 "justification": "Banking on the 12h window, both advocates have merit; "
                 "the time-split meets both.",
-                "winning_side": "evacuation",
+                "winning_side": side,
             }
         )
     if "briefing" in sp and "headline" in sp:
+        context = next(
+            (m.get("content", "") for m in reversed(full_messages) if m.get("role") == "user"),
+            "",
+        )
+        conflict_resolution = _stub_conflict_lines(context)
         return json.dumps(
             {
                 "headline": "tutta tutti tutti STUB — flood response underway",
                 "risk_summary": "stub: 3 zones at elevated flood risk (SVG simulation)",
                 "resource_plan": "stub: allocation matching logistics plan",
-                "conflict_resolution": "stub: resource conflict resolved by time-share",
+                "conflict_resolution": conflict_resolution,
                 "recommended_actions": [
                     "Begin evacuations from highest-risk zones",
                     "Hold logistics convoys for evening window",
@@ -56,6 +62,22 @@ def _stub_content(system_prompt: str, full_messages: list[dict]) -> str:
         (m.get("content", "") for m in reversed(full_messages) if m.get("role") == "user"), ""
     )
     return f"STUB ADVOCATE TURN: this flood is urgent; allocate capacity to the exposed zone. ({last_user[:80]})"
+
+
+def _stub_conflict_lines(context: str) -> str:
+    """Echo the RESOLVED CONFLICTS block from the summarized briefing context.
+
+    Keeps the stub briefing faithful to the resolution decisions actually fed
+    to the agent, so the override/approve verification can assert on the final
+    briefing content.
+    """
+    marker = "RESOLVED CONFLICTS:"
+    idx = context.find(marker)
+    if idx == -1:
+        return "stub: no conflict resolution lines parsed"
+    rest = context[idx + len(marker):].strip()
+    lines = [ln.strip("- ").strip() for ln in rest.splitlines() if ln.strip()]
+    return "stub: " + " / ".join(lines) if lines else "stub: none listed"
 
 
 def _stub_tuple(
@@ -184,8 +206,6 @@ async def generate(
     full_messages = _build_messages(system_prompt, messages)
     if AEGIS_LLM_STUB:
         return _stub_content(system_prompt, full_messages)
-    if AEGIS_LLM_STUB:
-        return _stub_content(system_prompt, full_messages)
 
     for attempt in range(1, 3):
         try:
@@ -210,6 +230,11 @@ async def generate_stream(
 ) -> AsyncGenerator[str, None]:
     """Stream text chunks as they arrive. Provider-agnostic."""
     full_messages = _build_messages(system_prompt, messages)
+    if AEGIS_LLM_STUB:
+        chunks, _ = _stub_tuple(system_prompt, full_messages)
+        for chunk in chunks:
+            yield chunk
+        return
 
     attempt = 0
     while True:

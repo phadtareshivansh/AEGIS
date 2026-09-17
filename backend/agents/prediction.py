@@ -55,8 +55,13 @@ def score_zone(
     Returns the zone's static attributes plus the computed factors and
     probabilities. Deterministic and side-effect free.
     """
+    # Danger threshold <= 0 must not crash the pipeline: a degenerate (or
+    # user-typed) threshold means there is no "safe" margin to normalize
+    # against, so the overshoot is expressed directly in meters instead of
+    # dividing by zero.
+    denominator = river_level_danger_threshold_m or 1.0
     river_overshoot = max(
-        0.0, (river_level_m - river_level_danger_threshold_m) / river_level_danger_threshold_m
+        0.0, (river_level_m - river_level_danger_threshold_m) / denominator
     )
     proximity_factor = 1.0 / (1.0 + zone["distance_to_river_km"])
     elevation_factor = 1.0 / (1.0 + zone["elevation_m"] / 10.0)
@@ -132,4 +137,67 @@ def build_prediction(
         "at_risk_zones": at_risk,
         "horizon_hours": HORIZON_HOURS,
         "summary": summary,
+    }
+
+
+# Sentinel values: a location with no usable river data must never present a
+# confident-looking probability. These shapes carry an explicit non-numeric
+# hazard status instead, and downstream nodes check for it.
+UNAVAILABLE = "not_applicable"
+INSUFFICIENT = "insufficient_hydrology_data"
+
+
+def build_unassessable_prediction(
+    reason: str,
+    detail: str | None = None,
+    location_name: str | None = None,
+) -> dict:
+    """Prediction payload for a location with no usable hydrology.
+
+    flood_probability is the literal string not_applicable — there is NO
+    numeric probability and NO at_risk_zones, so no consumer can render a
+    confident-looking number.
+    """
+    where = f" for {location_name}" if location_name else ""
+    detail = detail or (
+        "no river reach within GloFAS coverage and no coastal/flash-flood "
+        "model applies"
+    )
+    return {
+        "flood_probability": UNAVAILABLE,
+        "reason": reason,
+        "detail": detail,
+        "location_name": location_name,
+        "at_risk_zones": [],
+        "horizon_hours": None,
+        "summary": f"Flood assessment not applicable{where}: {detail}",
+    }
+
+
+def build_rain_watch_prediction(
+    rainfall_mm_24h: float,
+    reason: str | None = None,
+    location_name: str | None = None,
+) -> dict:
+    """Explicitly labeled rainfall-only flash/urban flood watch.
+
+    Not a riverine probability: the hazard status is the string
+    insufficient_hydrology_data and no numeric probability is emitted —
+    downstream consumers treat this as "rainfall observed, river dynamics
+    unknown", never as a calibrated flood chance.
+    """
+    where = f" for {location_name}" if location_name else ""
+    return {
+        "flood_probability": INSUFFICIENT,
+        "assessment": "flash_rain_watch",
+        "rainfall_mm_24h": round(float(rainfall_mm_24h), 1),
+        "reason": reason or "no river reach within GloFAS coverage",
+        "location_name": location_name,
+        "at_risk_zones": [],
+        "horizon_hours": None,
+        "summary": (
+            f"Flash/urban flood watch{where}: {rainfall_mm_24h:.0f} mm/24h "
+            "observed (rainfall only). Riverine risk is NOT assessed — "
+            f"{reason or 'no river reach within GloFAS coverage'}."
+        ),
     }

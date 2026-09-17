@@ -88,6 +88,56 @@ def _extract_json(text: str) -> dict | None:
         return None
 
 
+def _unassessable_briefing(prediction: dict, logistics_plan: dict | None) -> dict:
+    """Honest briefing when no flood assessment could be made.
+
+    States plainly that a riverine probability is NOT produced because there
+    is no usable hydrology data — mirroring prediction's sentinel rather than
+    emitting a confident number.
+    """
+    status = prediction.get("flood_probability")
+    where = f" for {prediction.get('location_name')}" if prediction.get("location_name") else ""
+    if status == "insufficient_hydrology_data" and prediction.get("assessment") == "flash_rain_watch":
+        rain = prediction.get("rainfall_mm_24h", 0)
+        headline = f"Flash/urban flood watch{where}: {rain:.0f} mm/24h rainfall observed"
+        risk_summary = (
+            f"{rain:.0f} mm of rain fell in the last 24 hours at "
+            f"{prediction.get('location_name') or 'the chosen location'}. "
+            "No river reach is available in the flood-forecast data, so "
+            "riverine flood risk is NOT assessed. Only a rainfall-driven "
+            "flash/urban watch is reported — treat it as an advisory, not a "
+            "river flood prediction."
+        )
+        actions = [
+            "Treat as a rainfall-only advisory; riverine risk is unknown",
+            "Watch for local drainage / street flooding from heavy rain",
+            "Seek local gauge or official warnings for river levels",
+        ]
+    else:
+        reason = prediction.get("detail") or prediction.get("reason")
+        headline = f"Flood assessment not possible{where} — insufficient hydrology data"
+        risk_summary = (
+            f"No river reach could be found near "
+            f"{prediction.get('location_name') or 'the chosen location'} in the "
+            "global flood-forecast data. A flood probability is therefore NOT "
+            "reported: presenting one would be a guess. Rainfall, if any, was "
+            "recorded but cannot be combined into a riverine risk without "
+            f"river data. ({reason})"
+        )
+        actions = [
+            "Do not act on a flood probability — none was produced",
+            "Seek local river gauge readings or regional warnings",
+            "Monitor satellite rainfall for flash-flood signs in the area",
+        ]
+    return {
+        "headline": headline,
+        "risk_summary": risk_summary,
+        "resource_plan": "No resource allocations made — there is no flood assessment to plan against.",
+        "conflict_resolution": None,
+        "recommended_actions": actions,
+    }
+
+
 def _fallback_briefing(prediction: dict, logistics_plan: dict, resolution: dict | None) -> dict:
     """Deterministic briefing used when the LLM is unavailable or unparseable."""
     ranked = (prediction or {}).get("at_risk_zones", [])
@@ -144,6 +194,13 @@ async def generate_briefing(
     briefing and should surface the error event.
     """
     context = _summarize(prediction, logistics_plan, resolution)
+
+    if (prediction or {}).get("flood_probability") in (
+        "not_applicable",
+        "insufficient_hydrology_data",
+    ):
+        briefing = _unassessable_briefing(prediction, logistics_plan)
+        return briefing, None
 
     if not (prediction or logistics_plan):
         return (

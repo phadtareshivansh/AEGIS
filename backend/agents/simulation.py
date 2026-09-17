@@ -170,6 +170,31 @@ def _build_prompt(prediction: dict, raw_data: dict) -> str:
     )
 
 
+def build_unavailable_svg(reason: str) -> str:
+    """Neutral overlay shown when no flood assessment is possible.
+
+    Makes it explicit (no tiles, no probabilities) that AEGIS is NOT rendering
+    a flood map because there is no usable hydrology data for the location.
+    """
+    wrapped = reason or "insufficient hydrology data"
+    if len(wrapped) > 70:
+        wrapped = wrapped[:69] + "…"
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SVG_W} {SVG_H}" '
+        f'width="{SVG_W}" height="{SVG_H}">'
+        f'<rect x="0" y="0" width="{SVG_W}" height="{SVG_H}" fill="#0A0A0A"/>'
+        f'<text x="{SVG_W / 2}" y="150" font-family="monospace" font-size="16" '
+        'letter-spacing="3" fill="#E8542A" text-anchor="middle">FLOOD SIMULATION — NOT AVAILABLE</text>'
+        f'<text x="{SVG_W / 2}" y="220" font-family="monospace" font-size="11" '
+        f'fill="#8A8A85" text-anchor="middle">no flood assessment produced —</text>'
+        f'<text x="{SVG_W / 2}" y="244" font-family="monospace" font-size="11" '
+        f'fill="#8A8A85" text-anchor="middle">{html.escape(wrapped)}</text>'
+        f'<text x="{SVG_W / 2}" y="310" font-family="monospace" font-size="9" '
+        'fill="#565656" text-anchor="middle">no confidence value is shown rather than a guessed probability</text>'
+        "</svg>"
+    )
+
+
 async def _hf_generate_image(prompt: str, model: str, token: str) -> bytes:
     async with httpx.AsyncClient(timeout=HF_TIMEOUT_SECONDS) as client:
         response = await client.post(
