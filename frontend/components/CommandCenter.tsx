@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useScenario } from "./ScenarioProvider";
 import type { DebateEntry, Entry, ScenarioEvent } from "./ScenarioProvider";
@@ -99,11 +99,69 @@ function TurnBubble({
   );
 }
 
-function ResolutionCallout({ event }: { event: ScenarioEvent }) {
-  const data = (event.data ?? {}) as Record<string, unknown>;
-  const decision = data.decision ?? event.message;
-  const justification = data.justification;
-  const side = data.winning_side;
+function ResolutionCallout({ entry }: { entry: DebateEntry }) {
+  const { approveConflict, overrideConflict } = useScenario();
+  const [approver, setApprover] = useState("");
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideDecision, setOverrideDecision] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const proposal = entry.resolution;
+  const data = (proposal?.data ?? {}) as Record<string, unknown>;
+  const proposalDecision = String(data.decision ?? proposal?.message ?? "");
+  const justification = String(data.justification ?? "");
+  const side = data.winning_side as string | undefined;
+  const finalized = entry.finalized;
+  const displayDecision = finalized?.decision ?? proposalDecision;
+  const policy = entry.policy.recommendation;
+  const policyMismatch = entry.policy.flagged === true || entry.policy.agree === false;
+
+  const actionLabel = finalized ? (
+    finalized.status === "approved" ? (
+      <span className="font-mono text-[11px] tracking-[0.3em] text-accent">
+        APPROVED · {finalized.approvedBy.toUpperCase()}
+      </span>
+    ) : (
+      <span className="font-mono text-[11px] tracking-[0.3em] text-amber-400">
+        OVERRIDDEN · {finalized.approvedBy.toUpperCase()}
+      </span>
+    )
+  ) : entry.pending ? (
+    <span className="animate-pulse font-mono text-[11px] tracking-[0.3em] text-amber-400">
+      ⚠ AWAITING APPROVAL
+    </span>
+  ) : (
+    <span className="font-mono text-[11px] tracking-[0.3em] text-muted">
+      ARBITER PROPOSAL
+    </span>
+  );
+
+  async function handleApprove() {
+    if (!approver.trim() || busy) return;
+    setBusy(true);
+    try {
+      await approveConflict(entry.conflictId, approver.trim());
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleOverrideSubmit() {
+    if (!approver.trim() || !overrideReason.trim() || !overrideDecision.trim() || busy) return;
+    setBusy(true);
+    try {
+      await overrideConflict(entry.conflictId, {
+        approved_by: approver.trim(),
+        override_reason: overrideReason.trim(),
+        override_decision: overrideDecision.trim(),
+      });
+      setOverrideOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -111,21 +169,171 @@ function ResolutionCallout({ event }: { event: ScenarioEvent }) {
       transition={{ duration: 0.5, ease: EASE }}
       className="mx-auto mt-6 max-w-2xl rounded-lg border border-accent/50 bg-accent-dim px-5 py-4"
     >
-      <p className="mb-1.5 font-mono text-[11px] tracking-[0.35em] text-accent">
-        RESOLUTION
-      </p>
+      <div className="mb-1.5 flex items-center justify-between gap-3">
+        <p className="font-mono text-[11px] tracking-[0.35em] text-accent">
+          RESOLUTION
+        </p>
+        {actionLabel}
+      </div>
       <p className="font-display text-base font-bold tracking-tight text-foreground">
-        {String(decision)}
+        {String(displayDecision)}
       </p>
       {justification ? (
         <p className="mt-2 text-sm leading-relaxed text-foreground/70">
-          {String(justification)}
+          {justification}
         </p>
       ) : null}
-      {side ? (
+      {finalized?.status === "overridden" && finalized.overrideReason ? (
+        <p className="mt-2 text-sm leading-relaxed text-amber-300/80">
+          OVERRIDE REASON · {finalized.overrideReason}
+        </p>
+      ) : null}
+      {!finalized && side ? (
         <p className="mt-3 font-mono text-[11px] tracking-wider text-muted">
           WINNING SIDE · {String(side).toUpperCase()}
         </p>
+      ) : null}
+
+      {policy ? (
+        <div className="mt-4 border-t border-white/10 pt-4">
+          {policyMismatch && !finalized ? (
+            <div className="mb-3 border border-amber-400/60 bg-amber-400/10 px-3 py-2">
+              <p className="font-mono text-[11px] font-bold tracking-[0.25em] text-amber-300">
+                ⚠ POLICY MISMATCH — HUMAN REVIEW REQUIRED
+              </p>
+              <p className="mt-1 font-mono text-xs leading-relaxed text-foreground/80">
+                The Arbiter chose <span className="text-amber-300">{String(side ?? "—").toUpperCase()}</span>,
+                but the documented ruleset recommends{" "}
+                <span className="text-amber-300">
+                  {String(policy.winning_side ?? "—").toUpperCase()}
+                </span>
+                . Nothing is silently resolved — a coordinator must decide below.
+              </p>
+            </div>
+          ) : null}
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="rounded-md border border-white/10 bg-panel/60 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-mono text-[10px] tracking-[0.3em] text-accent">
+                  ARBITER DECISION
+                </p>
+                <span
+                  className={`font-mono text-[10px] tracking-wider ${
+                    policyMismatch ? "text-amber-300" : "text-muted"
+                  }`}
+                >
+                  {String(side ?? "—").toUpperCase()}
+                </span>
+              </div>
+              <p className="mt-2 font-display text-sm font-bold tracking-tight text-foreground">
+                {displayDecision}
+              </p>
+              {justification ? (
+                <p className="mt-1.5 text-xs leading-relaxed text-foreground/60">
+                  {justification}
+                </p>
+              ) : null}
+            </div>
+            <div className="rounded-md border border-white/10 bg-panel/60 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-mono text-[10px] tracking-[0.3em] text-muted">
+                  POLICY CHECK
+                </p>
+                <span className="font-mono text-[10px] tracking-wider text-foreground/70">
+                  {String(policy.winning_side ?? "—").toUpperCase()}
+                </span>
+              </div>
+              <p className="mt-2 font-display text-sm font-bold tracking-tight text-foreground">
+                {policy.decision}
+              </p>
+              {policy.justification ? (
+                <p className="mt-1.5 text-xs leading-relaxed text-foreground/60">
+                  {policy.justification}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {entry.pending && !finalized ? (
+        <div className="mt-4 border-t border-accent/30 pt-4">
+          {!overrideOpen ? (
+            <>
+              <div className="mb-3 flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={approver}
+                  onChange={(e) => setApprover(e.target.value)}
+                  placeholder="Your name / role *"
+                  className="w-full flex-1 border border-white/15 bg-background/60 px-3 py-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus:border-accent"
+                />
+              </div>
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleApprove}
+                  disabled={!approver.trim() || busy}
+                  className="border border-accent bg-accent px-5 py-2 font-display text-xs font-bold tracking-tight text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {busy ? "Submitting…" : "Approve"}
+                </button>
+                <button
+                  onClick={() => setOverrideOpen(true)}
+                  disabled={!approver.trim()}
+                  className="border border-amber-400/60 px-5 py-2 font-display text-xs font-bold tracking-tight text-amber-300 transition-colors hover:bg-amber-400/10 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Override…
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <p className="font-mono text-[11px] tracking-[0.25em] text-amber-400">
+                OVERRIDE — HUMAN DECISION WINS
+              </p>
+              <input
+                value={approver}
+                onChange={(e) => setApprover(e.target.value)}
+                placeholder="Your name / role *"
+                className="w-full border border-white/15 bg-background/60 px-3 py-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus:border-amber-400"
+              />
+              <textarea
+                value={overrideReason}
+                onChange={(e) => setOverrideReason(e.target.value)}
+                placeholder="Why are you overriding the Arbiter? *"
+                rows={2}
+                className="w-full resize-none border border-white/15 bg-background/60 px-3 py-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus:border-amber-400"
+              />
+              <textarea
+                value={overrideDecision}
+                onChange={(e) => setOverrideDecision(e.target.value)}
+                placeholder="Alternative decision to use instead *"
+                rows={2}
+                className="w-full resize-none border border-white/15 bg-background/60 px-3 py-2 font-mono text-xs text-foreground outline-none placeholder:text-muted focus:border-amber-400"
+              />
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleOverrideSubmit}
+                  disabled={
+                    !approver.trim() ||
+                    !overrideReason.trim() ||
+                    !overrideDecision.trim() ||
+                    busy
+                  }
+                  className="border border-amber-400 bg-amber-400 px-5 py-2 font-display text-xs font-bold tracking-tight text-background transition-opacity disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {busy ? "Submitting…" : "Apply override"}
+                </button>
+                <button
+                  onClick={() => setOverrideOpen(false)}
+                  className="border border-white/15 px-5 py-2 font-display text-xs font-bold tracking-tight text-muted transition-colors hover:text-foreground"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       ) : null}
     </motion.div>
   );
@@ -170,7 +378,7 @@ function DebateBlock({ entry }: { entry: DebateEntry }) {
         </div>
       </div>
 
-      {resolution ? <ResolutionCallout event={resolution} /> : null}
+      {resolution ? <ResolutionCallout entry={entry} /> : null}
     </motion.div>
   );
 }
@@ -184,7 +392,7 @@ function FeedItem({ entry }: { entry: Entry }) {
 }
 
 export default function CommandCenter() {
-  const { phase, connection, entries, scenarioId } = useScenario();
+  const { phase, connection, entries, scenarioId, pendingApprovals } = useScenario();
   const feedRef = useRef<HTMLDivElement>(null);
   const pinnedRef = useRef(true);
 
@@ -201,6 +409,7 @@ export default function CommandCenter() {
   }, [entries]);
 
   const running = phase === "running";
+  const awaiting = running && pendingApprovals > 0;
 
   return (
     <section id="command" className="py-32 md:py-48">
@@ -228,19 +437,29 @@ export default function CommandCenter() {
           transition={{ duration: 0.7, delay: 0.1, ease: EASE }}
           className="mt-16 overflow-hidden rounded-lg border border-white/10 bg-panel"
         >
-          <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
-            <div className="flex items-center gap-2.5">
-              {running ? (
-                <>
-                  <span className="relative flex h-2.5 w-2.5">
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
-                    <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-accent" />
-                  </span>
-                  <span className="font-mono text-xs font-bold tracking-[0.3em] text-foreground">
-                    LIVE
-                  </span>
-                </>
-              ) : phase === "briefing" ? (
+<div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+              <div className="flex items-center gap-2.5">
+                {awaiting ? (
+                  <>
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-amber-400 opacity-60" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-amber-400" />
+                    </span>
+                    <span className="font-mono text-xs font-bold tracking-[0.3em] text-amber-300">
+                      AWAITING HUMAN APPROVAL · {pendingApprovals}
+                    </span>
+                  </>
+                ) : running ? (
+                  <>
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-accent opacity-60" />
+                      <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-accent" />
+                    </span>
+                    <span className="font-mono text-xs font-bold tracking-[0.3em] text-foreground">
+                      LIVE
+                    </span>
+                  </>
+                ) : phase === "briefing" ? (
                 <>
                   <span className="h-2.5 w-2.5 rounded-full bg-muted" />
                   <span className="font-mono text-xs font-bold tracking-[0.3em] text-muted">
